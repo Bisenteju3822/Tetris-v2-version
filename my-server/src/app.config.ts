@@ -13,7 +13,7 @@ export default config({
         /**
          * Define your room handlers:
          */
-        gameServer.define('tetrisv2', TetrisV2Room);
+        gameServer.define('tetris_v2', TetrisV2Room);
 
     },
 

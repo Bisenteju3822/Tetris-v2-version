@@ -1,162 +1,189 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import GameBoard from "./Componets/Gameboard";
+import PlayerInfo from "./Componets/Playerinfo";
+import Lobby from "./Componets/lobby";
+import GameOverScreen from "./Componets/GameScore";
+import "./css/tetris.css"; // Assuming you have a CSS file for styles
 
-const WS_URL = "ws://localhost:8000"; // Gateway WebSocket
-
-export default function TetrisV2Client() {
+const App = () => {
+  const [gameState, setGameState] = useState(null);
+  const [playerInfo, setPlayerInfo] = useState(null);
+  const [socket, setSocket] = useState(null);
+  const [roomId, setRoomId] = useState(null);
+  const [error, setError] = useState(null);
+  const [selectedPieceIndex, setSelectedPieceIndex] = useState(0);
   const socketRef = useRef(null);
-  const [connected, setConnected] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
-  const [players, setPlayers] = useState({});
-  const [gameStatus, setGameStatus] = useState("waiting");
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [x, setX] = useState(0);
-  const [y, setY] = useState(0);
-  const [messages, setMessages] = useState([]);
 
-  useEffect(() => {
-    const socket = new WebSocket(WS_URL);
-    socketRef.current = socket;
+  // Connect to WebSocket server
+  const connectToServer = (name, uniqueId) => {
+    const ws = new WebSocket("ws://localhost:8000");
+    socketRef.current = ws;
 
-    socket.onopen = () => {
-      setConnected(true);
-      console.log("✅ Connected to Tetris Gateway");
+    ws.onopen = () => {
+      console.log("Connected to WebSocket server");
+      setSocket(ws);
+      ws.send(
+        JSON.stringify({
+          type: "join",
+          data: { name, uniqueId },
+        })
+      );
     };
 
-    socket.onmessage = (event) => {
-      const { type, data } = JSON.parse(event.data);
-      console.log("📩 Message from server:", type, data);
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      console.log("Received message:", message);
 
-      switch (type) {
+      switch (message.type) {
         case "joined":
-          setSessionId(data.sessionId);
+          setRoomId(message.data.roomId);
+          setPlayerInfo({
+            sessionId: message.data.sessionId,
+            name,
+            uniqueId,
+          });
           break;
+
         case "state":
-          setPlayers(data.players);
-          setGameStatus(data.gameStatus);
+          setGameState(message.data);
           break;
+
         case "error":
-          setMessages((prev) => [...prev, `❌ ${data}`]);
+          setError(message.data);
           break;
+
         case "gameOver":
-          setMessages((prev) => [...prev, `🏁 Game Over: ${data.playerId}`]);
-          break;
-        case "matchEnded":
-          setMessages((prev) => [
+          setGameState((prev) => ({
             ...prev,
-            `🎉 Match Ended! Winner: ${data.winner}`,
-          ]);
+            gameStatus: "finished",
+            winner: message.data.playerId,
+          }));
           break;
+
+        case "matchEnded":
+          setGameState((prev) => ({
+            ...prev,
+            gameStatus: "finished",
+            winner: message.data.winnerId,
+          }));
+          break;
+
         default:
-          break;
+          console.log("Unhandled message type:", message.type);
       }
     };
 
-    socket.onclose = () => {
-      setConnected(false);
-      console.log("🔌 Disconnected from server");
+    ws.onerror = (err) => {
+      console.error("WebSocket error:", err);
+      setError("Connection error");
     };
 
-    return () => socket.close();
-  }, []);
-
-  const handleJoin = () => {
-    const payload = {
-      type: "join",
-      data: {
-        uniqueId: "user_" + Math.random().toString(36).substring(2),
-        userId: "user123",
-        name: "Tejas",
-        matchOptionId: "match_1",
-        useBonus: false,
-        isPrivate: false,
-        allowedUserIds: [],
-        playerCount: 4,
-      },
+    ws.onclose = () => {
+      console.log("Disconnected from WebSocket server");
+      setSocket(null);
     };
-    socketRef.current.send(JSON.stringify(payload));
   };
 
-  const handlePlacePiece = () => {
+  // Handle piece placement
+  const placePiece = (x, y) => {
+    if (
+      !socketRef.current ||
+      !gameState ||
+      gameState.gameStatus !== "in-progress"
+    )
+      return;
+
     socketRef.current.send(
       JSON.stringify({
         type: "place_piece",
-        data: { index: currentIndex, x: x, y: y },
+        data: { index: selectedPieceIndex, x, y },
       })
     );
   };
 
-  const handleRematch = () => {
-    socketRef.current.send(JSON.stringify({ type: "rematch_request" }));
+  // Handle piece rotation
+  const rotatePiece = () => {
+    if (!socketRef.current) return;
+    socketRef.current.send(
+      JSON.stringify({
+        type: "rotate_piece",
+        data: { index: selectedPieceIndex },
+      })
+    );
   };
 
+  // Handle rematch request
+  const requestRematch = () => {
+    if (!socketRef.current) return;
+    socketRef.current.send(
+      JSON.stringify({
+        type: "rematch_request",
+      })
+    );
+  };
+
+  // Handle exit
+  const exitGame = () => {
+    if (socketRef.current) {
+      socketRef.current.send(JSON.stringify({ type: "exit" }));
+      socketRef.current.close();
+    }
+    setGameState(null);
+    setPlayerInfo(null);
+  };
+
+  // Keyboard controls
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "r" || e.key === "R") {
+        rotatePiece();
+      }
+      // Number keys 1-3 to select pieces
+      if (e.key >= "1" && e.key <= "3") {
+        const index = parseInt(e.key) - 1;
+        setSelectedPieceIndex(index);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  if (!playerInfo) {
+    return <Lobby onJoin={connectToServer} error={error} />;
+  }
+
+  if (gameState?.gameStatus === "finished") {
+    return (
+      <GameOverScreen
+        winner={gameState.winner}
+        players={gameState.players}
+        onRematch={requestRematch}
+        onExit={exitGame}
+      />
+    );
+  }
+
   return (
-    <div className="p-4 font-mono">
-      <h1 className="text-2xl font-bold mb-4">🧩 Tetris V2 Client</h1>
-
-      <div className="space-x-4 mb-4">
-        <button
-          onClick={handleJoin}
-          disabled={!connected}
-          className="bg-green-600 text-white px-3 py-1 rounded"
-        >
-          Join Game
-        </button>
-        <button
-          onClick={handlePlacePiece}
-          className="bg-blue-500 text-white px-3 py-1 rounded"
-        >
-          Place Piece
-        </button>
-        <button
-          onClick={handleRematch}
-          className="bg-purple-500 text-white px-3 py-1 rounded"
-        >
-          Rematch
-        </button>
-      </div>
-
-      <div className="mb-4">
-        <label>Piece Index: </label>
-        <input
-          type="number"
-          value={currentIndex}
-          onChange={(e) => setCurrentIndex(Number(e.target.value))}
-          className="border px-1 w-12 mr-2"
+    <div className="app">
+      <div className="game-container">
+        <PlayerInfo
+          player={playerInfo}
+          gameState={gameState}
+          currentPlayer={gameState?.players[playerInfo.sessionId]}
         />
-        <label>X: </label>
-        <input
-          type="number"
-          value={x}
-          onChange={(e) => setX(Number(e.target.value))}
-          className="border px-1 w-12 mr-2"
-        />
-        <label>Y: </label>
-        <input
-          type="number"
-          value={y}
-          onChange={(e) => setY(Number(e.target.value))}
-          className="border px-1 w-12 mr-2"
-        />
-      </div>
 
-      <div className="border p-2 bg-gray-100">
-        <h2 className="text-lg font-semibold">🧍 Players</h2>
-        {Object.entries(players).map(([id, p]) => (
-          <div key={id} className="p-1 border-b">
-            <strong>{p.name}</strong> | Score: {p.score} | Pieces:{" "}
-            {p.currentPiecesCount} | {p.gameOver ? "💀" : "🎮"}
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-4">
-        <h2 className="text-lg font-semibold">📢 Messages</h2>
-        <ul className="text-sm list-disc pl-5">
-          {messages.map((msg, i) => (
-            <li key={i}>{msg}</li>
-          ))}
-        </ul>
+        <GameBoard
+          gameState={gameState}
+          playerSessionId={playerInfo.sessionId}
+          onPlacePiece={placePiece}
+          selectedPieceIndex={selectedPieceIndex}
+          onSelectPiece={setSelectedPieceIndex}
+          onRotatePiece={rotatePiece}
+        />
       </div>
     </div>
   );
-}
+};
+
+export default App;
