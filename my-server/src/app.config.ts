@@ -5,7 +5,7 @@ import { playground } from "@colyseus/playground";
 /**
  * Import your Room files
  */
-import { TetrisV2Room} from "./rooms/TetrisV2room";
+import { TetrisRoom} from "./rooms/TetrisRoom";
 
 export default config({
 
@@ -13,7 +13,7 @@ export default config({
         /**
          * Define your room handlers:
          */
-        gameServer.define('tetris_v2', TetrisV2Room);
+        gameServer.define('tetris_v2', TetrisRoom);
 
     },
 
@@ -49,3 +49,9 @@ export default config({
          */
     }
 });
+
+
+// {
+//   "pieceIndex": 0,
+//   "coordinates": [[0,0], [1,0]] 
+// }

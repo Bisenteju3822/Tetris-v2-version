@@ -2,3 +2,7 @@ node_modules
 build
 .colyseus-cloud.json
 .devmode.json
+ {
+   "pieceIndex": 1,
+  "coordinates": [[0,0]] 
+}
